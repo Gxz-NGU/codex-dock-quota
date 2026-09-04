@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="docs/chatgpt-dock-quota.png" width="170" alt="ChatGPT Dock 图标直接显示 Codex 剩余 12%">
+  <img src="docs/chatgpt-dock-quota.png" width="170" alt="ChatGPT Dock 图标直接显示 Codex 剩余额度和进度条">
   <h1>Codex Dock Quota</h1>
   <p>在 macOS 的 ChatGPT 原 Dock 图标上直接显示 Codex 剩余额度。</p>
   <p><a href="README.md">English</a></p>
@@ -10,7 +10,7 @@
 
 ## 功能
 
-- 百分比直接显示在 ChatGPT 自己的 Dock 图标上，不产生第二个 Dock 图标。
+- 百分比和按比例变化的白色进度条直接显示在 ChatGPT 自己的 Dock 图标上，不产生第二个 Dock 图标。
 - 读取主 `codex` 额度，并显示当前约束最紧的有效时间窗口。
 - 每 60 秒以及 Mac 唤醒后自动刷新。
 - 同时生成明暗两套 ChatGPT Codex 图标。
@@ -26,6 +26,14 @@
 
 ## 构建与运行
 
+### 安装 Release 版本
+
+下载最新的 [macOS DMG](https://github.com/Gxz-NGU/codex-dock-quota/releases/latest)，打开后把 **Codex Quota** 拖入 **Applications**。
+
+当前下载版本面向 Apple Silicon（`arm64`）。由于项目目前没有 Apple Developer ID，应用只做了临时签名、尚未经过 Apple 公证。如果首次启动被 Gatekeeper 阻止，可以按住 Control 点击应用后选择“打开”，或者从源码自行构建。
+
+### 从源码构建
+
 ```bash
 ./scripts/build_app.sh
 open "dist/Codex Quota.app"
@@ -38,7 +46,7 @@ open "dist/Codex Quota.app"
 1. 定位 `ChatGPT.app` 内置的 `codex` 可执行文件。
 2. 通过标准输入输出启动 `codex app-server`，完成 `initialize` 握手并调用 `account/rateLimits/read`。
 3. 选择 `rateLimitsByLimitId["codex"]`，从约束最紧的有效窗口计算 `100 - usedPercent`。
-4. 在 ChatGPT 内置的明暗 Codex 图标副本上绘制百分比。
+4. 在 ChatGPT 内置的明暗 Codex 图标副本上绘制百分比和对应进度条。
 5. 将生成的 PNG 写入 `/private/tmp` 下按用户隔离的目录，并且只在显示值变化时重绘。
 6. 让 ChatGPT 已有的 `CodexDockTilePlugin` 加载这些图片，并发送插件的配置变更通知。
 

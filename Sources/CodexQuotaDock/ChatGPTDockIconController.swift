@@ -195,6 +195,7 @@ final class ChatGPTDockIconController {
 
     private func drawBadge(_ text: String, in canvas: NSRect) {
         let iconSize = min(canvas.width, canvas.height)
+        let progressFraction = quotaFraction(from: text)
         let font = NSFont.monospacedDigitSystemFont(
             ofSize: iconSize * 0.135,
             weight: .bold
@@ -206,8 +207,13 @@ final class ChatGPTDockIconController {
         let textSize = (text as NSString).size(withAttributes: attributes)
         let horizontalPadding = iconSize * 0.052
         let verticalPadding = iconSize * 0.025
+        let progressBarHeight = progressFraction == nil ? 0 : iconSize * 0.028
+        let progressBarSpacing = progressFraction == nil ? 0 : iconSize * 0.012
         let badgeWidth = max(iconSize * 0.25, textSize.width + horizontalPadding * 2)
-        let badgeHeight = textSize.height + verticalPadding * 2
+        let badgeHeight = textSize.height
+            + verticalPadding * 2
+            + progressBarHeight
+            + progressBarSpacing
         let margin = iconSize * 0.065
         let badgeRect = NSRect(
             x: canvas.maxX - margin - badgeWidth,
@@ -232,9 +238,52 @@ final class ChatGPTDockIconController {
 
         let textOrigin = NSPoint(
             x: badgeRect.midX - textSize.width / 2,
-            y: badgeRect.midY - textSize.height / 2
+            y: badgeRect.minY
+                + verticalPadding
+                + progressBarHeight
+                + progressBarSpacing
         )
         (text as NSString).draw(at: textOrigin, withAttributes: attributes)
+
+        if let progressFraction {
+            let trackRect = NSRect(
+                x: badgeRect.minX + horizontalPadding,
+                y: badgeRect.minY + verticalPadding * 0.72,
+                width: badgeRect.width - horizontalPadding * 2,
+                height: progressBarHeight
+            )
+            NSColor.white.withAlphaComponent(0.38).setFill()
+            NSBezierPath(
+                roundedRect: trackRect,
+                xRadius: progressBarHeight / 2,
+                yRadius: progressBarHeight / 2
+            ).fill()
+
+            let completedWidth = trackRect.width * progressFraction
+            if completedWidth > 0 {
+                let completedRect = NSRect(
+                    x: trackRect.minX,
+                    y: trackRect.minY,
+                    width: max(progressBarHeight * 1.15, completedWidth),
+                    height: progressBarHeight
+                )
+                NSColor.white.withAlphaComponent(0.96).setFill()
+                NSBezierPath(
+                    roundedRect: completedRect,
+                    xRadius: progressBarHeight / 2,
+                    yRadius: progressBarHeight / 2
+                ).fill()
+            }
+        }
+    }
+
+    private func quotaFraction(from badgeText: String) -> Double? {
+        guard badgeText.hasSuffix("%") else { return nil }
+        let percentageText = badgeText.dropLast()
+        guard let percentage = Double(percentageText), (0...100).contains(percentage) else {
+            return nil
+        }
+        return percentage / 100
     }
 
     private func relativePath(from baseDirectory: URL, to destination: URL) -> String {

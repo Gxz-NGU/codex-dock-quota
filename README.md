@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="docs/chatgpt-dock-quota.png" width="170" alt="ChatGPT Dock icon showing 12% Codex quota remaining">
+  <img src="docs/chatgpt-dock-quota.png" width="170" alt="ChatGPT Dock icon showing Codex quota and a progress bar">
   <h1>Codex Dock Quota</h1>
   <p>Show your remaining Codex quota directly on the ChatGPT Dock icon for macOS.</p>
   <p><a href="README.zh-CN.md">简体中文</a></p>
@@ -10,7 +10,7 @@
 
 ## What it does
 
-- Displays the remaining percentage on ChatGPT's own Dock icon—no second Dock icon.
+- Displays the remaining percentage and a proportional white progress bar on ChatGPT's own Dock icon—no second Dock icon.
 - Reads the main `codex` quota bucket and uses the most constrained active window.
 - Refreshes every 60 seconds and after the Mac wakes.
 - Supports ChatGPT's light and dark Codex icons.
@@ -26,6 +26,14 @@
 
 ## Build and run
 
+### Install the release build
+
+Download the latest [macOS DMG](https://github.com/Gxz-NGU/codex-dock-quota/releases/latest), open it, and drag **Codex Quota** into **Applications**.
+
+The current downloadable build targets Apple Silicon (`arm64`). It is ad-hoc signed and not notarized because this project does not currently have an Apple Developer ID. If Gatekeeper blocks the first launch, Control-click the app and choose **Open**, or build it locally from source.
+
+### Build from source
+
 ```bash
 ./scripts/build_app.sh
 open "dist/Codex Quota.app"
@@ -38,7 +46,7 @@ The utility runs as an `LSUIElement` background app, so it does not create its o
 1. Locates the `codex` executable bundled inside `ChatGPT.app`.
 2. Starts `codex app-server` over stdio, completes the `initialize` handshake, and calls `account/rateLimits/read`.
 3. Selects `rateLimitsByLimitId["codex"]` and calculates `100 - usedPercent` from the most constrained active window.
-4. Draws the percentage into copies of ChatGPT's built-in light and dark Codex icons.
+4. Draws the percentage and proportional progress bar into copies of ChatGPT's built-in light and dark Codex icons.
 5. Stores the generated PNGs in a per-user directory under `/private/tmp` and redraws them only when the displayed value changes.
 6. Points ChatGPT's existing `CodexDockTilePlugin` at those images and sends its preference-change notification.
 

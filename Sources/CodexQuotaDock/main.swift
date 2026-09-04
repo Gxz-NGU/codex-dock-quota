@@ -5,6 +5,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let rateLimitClient = CodexRateLimitClient()
     private let dockIconController = ChatGPTDockIconController()
     private var quotaRefreshTimer: Timer?
+    private var badgeRefreshTimer: Timer?
     private var statusItem: NSStatusItem?
     private var lastBadgeText: String?
     private var lastSnapshot: QuotaSnapshot?
@@ -19,12 +20,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         quotaRefreshTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             self?.rateLimitClient.refresh()
         }
+        badgeRefreshTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+            self?.reapplyLastBadge()
+        }
 
         rateLimitClient.start()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         quotaRefreshTimer?.invalidate()
+        badgeRefreshTimer?.invalidate()
         NSWorkspace.shared.notificationCenter.removeObserver(self)
         rateLimitClient.stop()
         dockIconController.restoreOriginalIcon()
@@ -86,12 +91,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             statusItem?.button?.toolTip = error.localizedDescription
         }
         rebuildStatusMenu()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+            self?.reapplyLastBadge()
+        }
     }
 
     private func displayError(_ message: String) {
         lastError = message
-        lastBadgeText = "!"
-        try? dockIconController.showBadge("!")
+        if lastSnapshot == nil {
+            lastBadgeText = "!"
+            try? dockIconController.showBadge("!")
+        }
         statusItem?.button?.toolTip = message
         rebuildStatusMenu()
     }
