@@ -1,83 +1,101 @@
 <div align="center">
-  <img src="docs/chatgpt-dock-quota.png" width="170" alt="ChatGPT Dock 图标直接显示 Codex 剩余额度和进度条">
-  <h1>Codex Dock Quota</h1>
-  <p>在 macOS 的 ChatGPT 原 Dock 图标上直接显示 Codex 剩余额度。</p>
+  <h1>AI Quota · Codex 与 Gemini Dock 额度</h1>
+  <p>一个 Swift 菜单栏 App，在 ChatGPT 和 Antigravity IDE 原 Dock 图标上显示剩余额度。</p>
+  <p>
+    <img src="docs/chatgpt-dock-quota.png" width="170" alt="ChatGPT 原 Dock 图标上的 Codex 剩余百分比和进度条">
+    &nbsp;&nbsp;
+    <img src="docs/antigravity-gemini-quota.png" width="170" alt="Antigravity IDE 图标上的 Gemini 五小时剩余额度和进度条">
+  </p>
+  <p>ChatGPT：Codex 额度 · Antigravity IDE：Gemini 额度</p>
   <p><a href="README.md">English</a></p>
 </div>
 
+图片展示工具渲染的额度图标，百分比仅作示例，并非实时账号数据。
+
 > [!IMPORTANT]
-> 这是一个非官方实验项目。额度读取使用 OpenAI 已公开说明的 [Codex App Server 协议](https://developers.openai.com/codex/app-server/)；Dock 集成依赖当前 ChatGPT 桌面版内部的 Dock Tile 插件约定，ChatGPT 更新后可能需要适配。
+> 这是一个非官方实验项目。Codex 使用已公开说明的 [App Server 协议](https://developers.openai.com/codex/app-server/)，两个 Dock 集成都依赖目标应用的内部实现。Antigravity 图标更新会短暂使用本机 Electron 主进程调试接口，该接口具有在 IDE 内执行代码的能力。目标应用升级后可能需要适配。
 
 ## 功能
 
-- 百分比和按比例变化的白色进度条直接显示在 ChatGPT 自己的 Dock 图标上，不产生第二个 Dock 图标。
-- 读取主 `codex` 额度，并显示当前约束最紧的有效时间窗口。
-- 每 60 秒以及 Mac 唤醒后自动刷新。
-- 同时生成明暗两套 ChatGPT Codex 图标。
-- 正常退出时恢复工具启动前的 ChatGPT Dock 图标设置。
-- 菜单栏提供查看状态、立即刷新、打开 ChatGPT 和退出功能。
+| 来源 | 显示位置 | 主图标显示内容 |
+| --- | --- | --- |
+| Codex | ChatGPT 原 Dock 图标 | 主 `codex` 额度中约束最紧的有效时间窗口 |
+| Gemini | Antigravity IDE 原 Dock 图标 | **Gemini 共用池的 5 小时剩余额度**（`gemini-5h`） |
+
+- 在两个原 Dock 图标上绘制百分比和白色比例进度条，不额外创建 Dock 图标。
+- 共用一个菜单栏入口，查看 Gemini 周额度、5 小时重置时间和两路状态。
+- 每 60 秒、Mac 唤醒后自动刷新，也可手动刷新。
+- 额度读取、WebSocket 通信和图标渲染均使用 Swift，无需 Node，也不启动 Node 后台进程。
+- 常驻进程为一个工具 App 和一个 ChatGPT 内置 Codex App Server 子进程。内存随运行状态波动，进程减少不保证内存更低。
+- Gemini 百分比变化时才重绘；ChatGPT 支持明暗两套图标。
+- 正常退出恢复两个图标；Gemini 额外提供 150 秒无成功刷新自动恢复保护。
+- 两路错误分别展示，不把缺失的 Gemini 额度当成 0% 或 100%。
 
 ## 环境要求
 
-- macOS 13 或更高版本
-- 已安装并登录 ChatGPT 桌面版
-- ChatGPT 当前版本包含内置 Codex App Server 和 `CodexDockTilePlugin`
-- 从源码构建需要 Swift 5.9 或更高版本
+- macOS 13.5 或更高版本；已在 Apple Silicon 本机验证。
+- 已安装并登录 ChatGPT，当前版本包含 Codex 可执行文件及 `CodexDockTilePlugin`。
+- 已安装并登录 **Antigravity IDE**，路径为 `/Applications/Antigravity IDE.app`，且保持单实例运行。
+- 构建需要 Swift 5.9 或更高版本，不需要安装 Node.js。
 
 ## 构建与运行
 
-### 安装 Release 版本
-
-下载最新的 [macOS DMG](https://github.com/Gxz-NGU/codex-dock-quota/releases/latest)，打开后把 **Codex Quota** 拖入 **Applications**。
-
-当前下载版本面向 Apple Silicon（`arm64`）。由于项目目前没有 Apple Developer ID，应用只做了临时签名、尚未经过 Apple 公证。如果首次启动被 Gatekeeper 阻止，可以按住 Control 点击应用后选择“打开”，或者从源码自行构建。
-
-### 从源码构建
-
-```bash
-./scripts/build_app.sh
-open "dist/Codex Quota.app"
+```sh
+./scripts/build_unified_app.sh
+open "dist/AI Quota.app"
 ```
 
-工具以 `LSUIElement` 后台应用运行，因此不会创建自己的 Dock 图标。可以通过菜单栏的仪表图标刷新或退出。
+`./scripts/build_app.sh` 也会构建同一个统一版。应用仅作本机临时签名，未经 Apple 公证；不会自动添加登录项。
+
+点击菜单栏仪表图标，可查看两路额度、立即刷新、打开 ChatGPT，或选择“退出并恢复两个图标”。首次迁移时会请求旧 Codex Quota 和 Antigravity Quota 正常退出，待恢复后接管；不会退出 ChatGPT 或 Antigravity IDE。
+
+现有 **v0.1.0** [Release](https://github.com/Gxz-NGU/codex-dock-quota/releases/tag/v0.1.0) 为旧 Codex 单独版。统一版请从当前源码构建。运行 `./scripts/package_release.sh` 可生成本地 DMG，不会自动发布 Release。
 
 ## 实现原理
 
-1. 定位 `ChatGPT.app` 内置的 `codex` 可执行文件。
-2. 通过标准输入输出启动 `codex app-server`，完成 `initialize` 握手并调用 `account/rateLimits/read`。
-3. 选择 `rateLimitsByLimitId["codex"]`，从约束最紧的有效窗口计算 `100 - usedPercent`。
-4. 在 ChatGPT 内置的明暗 Codex 图标副本上绘制百分比和对应进度条。
-5. 将生成的 PNG 写入 `/private/tmp` 下按用户隔离的目录，并且只在显示值变化时重绘。
-6. 让 ChatGPT 已有的 `CodexDockTilePlugin` 加载这些图片，并发送插件的配置变更通知。
+**Codex：** 启动 ChatGPT 内置的 `codex app-server`，完成初始化后调用 `account/rateLimits/read`，选择 `rateLimitsByLimitId["codex"]` 中约束最紧的有效窗口，计算 `100 - usedPercent`。在原始图标副本上绘制额度后，通过 ChatGPT 已有的 Dock 插件加载。
 
-项目**不会**修改或重新签名 `ChatGPT.app`，不会向 ChatGPT 注入代码，不读取浏览器 Cookie，也不需要单独的 OpenAI API Key。
+**Gemini：** 从 Antigravity IDE 主进程的直接子进程中定位本地语言服务，调用 `RetrieveUserQuotaSummary`。精确选择 `gemini-5h`，将 `remainingFraction × 100` 四舍五入；`gemini-weekly` 单独显示在菜单中。因此主图标不代表周额度是否仍可用。
 
-## 隐私与安全
+每次 Gemini Dock 更新都核对 IDE 进程身份，短暂开启 `127.0.0.1:9229` Inspector，调用 `app.dock.setIcon()` 后关闭调试端口。如果端口已被占用，会明确报错，不接管其他调试器。额度读取失败会尝试恢复原图标，IDE 进程内的看门狗提供后备恢复。
 
-- 登录和令牌刷新仍由 ChatGPT 内置的 Codex App Server 负责。
-- 工具只解析展示所需的额度窗口信息。
-- 动态图标里只包含渲染后的百分比。
-- 不包含统计上报和第三方依赖。
+## 隐私与兼容性
 
-## 兼容性说明
+- 不修改或重新签名 ChatGPT、Antigravity IDE 安装包。
+- 不读取浏览器 Cookie 或 Keychain 登录凭据，无需额外 API Key。
+- 本地语言服务的 CSRF 信息仅在内存中用于对应服务请求。
+- Gemini 图标及最少量的额度、更新时间元数据存放在私有临时目录，正常退出清理；不包含统计上报。
+- ChatGPT Dock 配置及插件通知、Antigravity 本地额度及调试接口均不是稳定的公开集成约定。
+- 当前不支持多个 IDE 实例、其他 Antigravity 安装路径，以及 IDE 关闭后的额度读取。
 
-App Server 属于 OpenAI 已公开说明的协议。`DockIconPreference`、`DockIconResourceName` 以及 `CodexDockTilePlugin` 的刷新通知属于当前 macOS 客户端的实现细节。如果未来 ChatGPT 删除或修改该插件，即使额度读取仍可用，Dock 展示也可能失效。
+## 测试
 
-如果工具异常退出后留下旧图标，请重新启动工具，再从菜单栏选择“退出额度角标”。正常退出会恢复启动时记录的图标设置。
+```sh
+CLANG_MODULE_CACHE_PATH="$PWD/.build/native-test-cache" \
+SWIFTPM_MODULECACHE_OVERRIDE="$PWD/.build/native-test-cache" \
+swift test --scratch-path .build/native-tests --disable-sandbox
+```
+
+测试覆盖 Gemini 共用池精确选择、0% 边界、取整和重置时间，以及缺失、重复和异常数据。本机另已验证真实读取、刷新、旧版迁移、正常退出恢复、子进程结束及调试端口关闭。生成图标文件本身不代表 Dock 实际显示成功；原 Dock 更新路径也经过用户目视确认。
+
+更详细的使用说明见[统一版说明](docs/unified-quota.zh-CN.md)。
 
 ## 项目结构
 
 ```text
 Sources/CodexQuotaDock/
-  CodexRateLimitClient.swift       Codex App Server JSONL 客户端
-  ChatGPTDockIconController.swift  图标渲染与 Dock 插件刷新
-  main.swift                       后台应用与菜单栏控制
-Resources/Info.plist               macOS 应用信息
-scripts/build_app.sh               Release 构建与 .app 打包
+  CodexRateLimitClient.swift       Codex App Server 客户端
+  ChatGPTDockIconController.swift  ChatGPT 图标渲染及 Dock 插件
+  GeminiQuotaClient.swift          原生额度读取及本机 Inspector 客户端
+  GeminiQuotaIcon.swift            Gemini 图标渲染
+  main.swift                      统一菜单、刷新及生命周期
+Tests/NativeQuotaTests/            Gemini 响应校验测试
+scripts/build_unified_app.sh       原生应用构建
+scripts/package_release.sh         本地 DMG 打包
 ```
 
 ## 许可证
 
 MIT，详见 [LICENSE](LICENSE)。
 
-ChatGPT、Codex 和 OpenAI 是 OpenAI 的商标。本项目与 OpenAI 无隶属或背书关系。
+ChatGPT、Codex 和 OpenAI 是 OpenAI 的商标；Gemini 和 Antigravity 是 Google 的产品名称。本项目与 OpenAI 或 Google 无隶属或背书关系。

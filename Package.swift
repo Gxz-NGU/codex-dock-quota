@@ -12,5 +12,6 @@ let package = Package(
             name: "CodexQuotaDock",
             path: "Sources/CodexQuotaDock"
         ),
+        .testTarget(name: "NativeQuotaTests", dependencies: ["CodexQuotaDock"], path: "Tests/NativeQuotaTests"),
     ]
 )
