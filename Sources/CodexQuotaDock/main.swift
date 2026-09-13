@@ -1,10 +1,10 @@
 import AppKit
 import Foundation
+import QuotaShared
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private let geminiClient = GeminiQuotaClient()
-    private var geminiSnapshot: GeminiQuota?
-    private var geminiError: String?
+    private let runtimeDock = ElectronDockClient(bundleIdentifier: "com.openai.codex")
+    private var updatingIcon = false
     private var quitting = false
     private var cleanupFinished = false
     private var started = false
@@ -23,8 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let identifier = Bundle.main.bundleIdentifier ?? "com.local.codex-quota-dock"
         let previous = NSRunningApplication.runningApplications(withBundleIdentifier: identifier).filter { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }
         if previous.contains(where: { $0.bundleURL == Bundle.main.bundleURL }) { NSApp.terminate(nil); return }
-        let oldGemini = NSRunningApplication.runningApplications(withBundleIdentifier: "local.antigravity-gemini-quota")
-        let retiring = previous + oldGemini
+        let retiring = previous
         for app in retiring {
             guard app.terminate() else {
                 let alert = NSAlert(); alert.messageText = "无法退出旧额度工具"
@@ -54,14 +53,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         quotaRefreshTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             self?.rateLimitClient.refresh()
-            self?.refreshGemini()
         }
         badgeRefreshTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             self?.reapplyLastBadge()
         }
 
         rateLimitClient.start()
-        refreshGemini()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -73,32 +70,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         dockIconController.restoreOriginalIcon()
     }
 
-    private func refreshGemini() {
-        guard !quitting else { return }
-        Task { @MainActor in
-            do {
-                if let snapshot = try await geminiClient.refresh() {
-                    geminiSnapshot = snapshot; geminiError = nil
-                }
-            } catch { geminiSnapshot = nil; geminiError = error.localizedDescription }
-            rebuildStatusMenu()
-        }
-    }
-
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard started else { quitting = true; return .terminateNow }
         if cleanupFinished { return .terminateNow }
         if quitting { return .terminateCancel }
         quitting = true
         quotaRefreshTimer?.invalidate(); badgeRefreshTimer?.invalidate()
-        rateLimitClient.stop(); dockIconController.restoreOriginalIcon()
+        rateLimitClient.stop()
         Task { @MainActor in
-            do { try await geminiClient.stop() }
+            do { try await runtimeDock.stop() }
             catch {
-                let alert = NSAlert(); alert.messageText = "Gemini 图标恢复失败"
+                let alert = NSAlert(); alert.messageText = "Codex 图标恢复失败"
                 alert.informativeText = error.localizedDescription + "；150 秒看门狗将恢复图标。"
                 alert.runModal()
             }
+            dockIconController.restoreOriginalIcon()
             cleanupFinished = true
             NSApp.terminate(nil)
         }
@@ -109,7 +95,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.image = NSImage(
             systemSymbolName: "gauge.with.dots.needle.67percent",
-            accessibilityDescription: "AI 额度"
+            accessibilityDescription: "Codex 额度"
         )
         statusItem.button?.toolTip = "Codex 额度正在连接"
         self.statusItem = statusItem
@@ -154,13 +140,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         lastBadgeText = badgeText
         lastError = nil
 
-        do {
-            try dockIconController.showBadge(badgeText)
-            statusItem?.button?.toolTip = "Codex 剩余 \(badgeText)"
-        } catch {
-            lastError = error.localizedDescription
-            statusItem?.button?.toolTip = error.localizedDescription
-        }
+        reapplyLastBadge()
         rebuildStatusMenu()
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
             self?.reapplyLastBadge()
@@ -172,20 +152,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         lastError = message
         if lastSnapshot == nil {
             lastBadgeText = "!"
-            try? dockIconController.showBadge("!")
+            reapplyLastBadge()
         }
         statusItem?.button?.toolTip = message
         rebuildStatusMenu()
     }
 
     private func reapplyLastBadge() {
-        guard !quitting else { return }
-        guard let lastBadgeText else { return }
-        do {
-            try dockIconController.showBadge(lastBadgeText)
-        } catch {
-            lastError = error.localizedDescription
-            statusItem?.button?.toolTip = error.localizedDescription
+        guard !quitting, !updatingIcon, let text = lastBadgeText else { return }
+        updatingIcon = true
+        Task { @MainActor in
+            defer { updatingIcon = false }
+            do {
+                try autoreleasepool { try dockIconController.showBadge(text) }
+                if try dockIconController.usesElectron() {
+                    try await runtimeDock.update(applicationURL: dockIconController.applicationURL(),
+                        light: dockIconController.runtimeLightURL, dark: dockIconController.runtimeDarkURL,
+                        original: dockIconController.runtimeOriginalURL)
+                }
+                lastError = nil
+            } catch { lastError = error.localizedDescription }
+            do { try dockIconController.recordDisplayStatus(error: lastError) }
+            catch { lastError = "无法保存显示状态：\(error.localizedDescription)" }
             rebuildStatusMenu()
         }
     }
@@ -237,16 +225,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         menu.addItem(.separator())
-        label("Antigravity IDE · Gemini 共用池")
-        if let snapshot = geminiSnapshot {
-            label("5 小时剩余：\(snapshot.fiveHour.percent)%")
-            if let reset = snapshot.fiveHour.resetTime, let date = ISO8601DateFormatter().date(from: reset) {
-                label("重置：\(dateFormatter.string(from: date))")
-            }
-            if let weekly = snapshot.weekly { label("周额度剩余：\(weekly.percent)%") }
-        } else { label(geminiError ?? "正在读取 Gemini 额度…") }
-        statusItem?.button?.toolTip = "Codex \(lastBadgeText ?? "…") · Gemini 5h \(geminiSnapshot.map { "\($0.fiveHour.percent)%" } ?? "!")"
-        menu.addItem(.separator())
+        statusItem?.button?.toolTip = lastError ?? "Codex \(lastBadgeText ?? "…")"
 
         let refreshItem = NSMenuItem(title: "立即刷新", action: #selector(refreshQuota), keyEquivalent: "r")
         refreshItem.target = self
@@ -257,7 +236,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(openItem)
 
         menu.addItem(.separator())
-        let quitItem = NSMenuItem(title: "退出并恢复两个图标", action: #selector(quitApplication), keyEquivalent: "q")
+        let quitItem = NSMenuItem(title: "退出并恢复图标", action: #selector(quitApplication), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
 
@@ -288,21 +267,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func refreshQuota() {
-        refreshGemini()
         rateLimitClient.refresh()
     }
 
     @objc private func workspaceDidWake() {
-        refreshGemini()
         rateLimitClient.refresh()
         reapplyLastBadge()
     }
 
     @objc private func workspaceApplicationChanged(_ notification: Notification) {
         guard let application = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
-        if application.bundleURL?.path == "/Applications/Antigravity IDE.app" {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { self.refreshGemini() }
-        }
         guard application.bundleIdentifier == "com.openai.codex" else { return }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in

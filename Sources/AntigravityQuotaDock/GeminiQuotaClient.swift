@@ -1,4 +1,5 @@
 import AppKit
+import QuotaShared
 import Foundation
 
 struct GeminiBucket: Decodable {
@@ -35,6 +36,7 @@ enum GeminiError: LocalizedError {
 actor GeminiQuotaClient {
     private let appPath = "/Applications/Antigravity IDE.app"
     private let owner = UUID().uuidString
+    private let dockClient = ElectronDockClient(bundleIdentifier: "com.google.antigravity-ide")
     private var directory: URL?
     private var lastPID: Int32?
     private var renderedPercent: Int?
@@ -148,55 +150,11 @@ actor GeminiQuotaClient {
         }
     }
     private func dockCommand(_ pid: Int32, restore: Bool) async throws {
-        guard try processes().contains(where: { $0.pid == pid && isApp($0) }) else { throw GeminiError.message("目标 Antigravity IDE 进程已退出") }
-        guard try run("/usr/sbin/lsof", ["-nP", "-iTCP:9229", "-sTCP:LISTEN"], allowEmpty: true).isEmpty else { throw GeminiError.message("9229 端口已被占用，未接管现有调试器") }
-        guard kill(pid, SIGUSR1) == 0 else { throw GeminiError.message("无法开启 IDE 本机调试：\(errno)") }
-        var ready = false
-        for _ in 0..<30 {
-            try await Task.sleep(nanoseconds: 100_000_000)
-            if try listeners(pid).contains("127.0.0.1:9229") { ready = true; break }
-        }
-        guard ready else { throw GeminiError.message("IDE 调试端口未就绪") }
-        struct Target: Decodable { let webSocketDebuggerUrl: String }
-        let targets = try JSONDecoder().decode([Target].self, from: await request(URL(string: "http://127.0.0.1:9229/json/list")!))
-        guard targets.count == 1, let url = URL(string: targets[0].webSocketDebuggerUrl), url.host == "127.0.0.1", url.port == 9229 else { throw GeminiError.message("调试目标地址无效") }
-        let socket = session.webSocketTask(with: url)
-        socket.resume()
-        defer { socket.cancel(with: .normalClosure, reason: nil) }
-        let command: [String: Any] = ["owner": owner, "directory": directory!.path, "pid": pid, "restore": restore, "package": appPath + "/Contents/Resources/app/package.json"]
-        let json = String(decoding: try JSONSerialization.data(withJSONObject: command), as: UTF8.self)
-        let expression = """
-        (()=>{const inspector=process.getBuiltinModule('inspector');try{
-        const c=\(json);const {app,nativeImage}=process.getBuiltinModule('module').createRequire(c.package)('electron');
-        if(process.pid!==c.pid||app.getName()!=='Antigravity IDE')throw Error('应用身份不匹配');
-        let s=globalThis.__antigravityGeminiDock;
-        if(s&&s.owner!==c.owner)throw Error('另一个额度工具正在管理图标');
-        if(c.restore){if(s){clearTimeout(s.timer);s.restore();}return {restored:true};}
-        if(!s){const original=nativeImage.createFromPath(c.directory+'/original.png');if(original.isEmpty())throw Error('原图标为空');
-        s={owner:c.owner,restore:()=>{app.dock.setIcon(original);delete globalThis.__antigravityGeminiDock;}};globalThis.__antigravityGeminiDock=s;}
-        const image=nativeImage.createFromPath(c.directory+'/quota.png');if(image.isEmpty())throw Error('额度图标为空');
-        clearTimeout(s.timer);s.timer=setTimeout(()=>s.restore(),150000);app.dock.setIcon(image);return {updated:true};
-        }finally{setTimeout(()=>inspector.close(),100);}})()
-        """
-        let packet: [String: Any] = ["id": 1, "method": "Runtime.evaluate", "params": ["expression": expression, "returnByValue": true]]
-        try await socket.send(.string(String(decoding: try JSONSerialization.data(withJSONObject: packet), as: UTF8.self)))
-        let timeout = Task { try await Task.sleep(nanoseconds: 10_000_000_000); socket.cancel(with: .goingAway, reason: nil) }
-        defer { timeout.cancel() }
-        while true {
-            let message = try await socket.receive()
-            let bytes: Data
-            switch message { case let .data(data): bytes = data; case let .string(text): bytes = Data(text.utf8); @unknown default: throw GeminiError.message("未知调试响应") }
-            guard let reply = try JSONSerialization.jsonObject(with: bytes) as? [String: Any] else { throw GeminiError.message("无效调试响应") }
-            guard (reply["id"] as? Int) == 1 else { continue }
-            if reply["error"] != nil || (reply["result"] as? [String: Any])?["exceptionDetails"] != nil { throw GeminiError.message("Dock 更新失败：\(String(decoding: bytes, as: UTF8.self))") }
-            break
-        }
-        socket.cancel(with: .normalClosure, reason: nil)
-        for _ in 0..<20 {
-            try await Task.sleep(nanoseconds: 100_000_000)
-            if try !listeners(pid).contains("127.0.0.1:9229") { return }
-        }
-        throw GeminiError.message("更新完成但临时调试端口尚未关闭")
+        if restore { try await dockClient.restore(); return }
+        guard let directory else { throw GeminiError.message("图标目录不存在") }
+        try await dockClient.update(applicationURL: URL(fileURLWithPath: appPath),
+            light: directory.appendingPathComponent("quota.png"), dark: directory.appendingPathComponent("quota.png"),
+            original: directory.appendingPathComponent("original.png"))
     }
     private func restore() async throws {
         guard let pid = lastPID else { return }
@@ -207,6 +165,7 @@ actor GeminiQuotaClient {
         stopping = true
         while busy { try await Task.sleep(nanoseconds: 100_000_000) }
         try await restore()
+        try await dockClient.stop()
         if let directory { try FileManager.default.removeItem(at: directory) }
         session.invalidateAndCancel()
     }

@@ -1,5 +1,5 @@
 import XCTest
-@testable import CodexQuotaDock
+@testable import AntigravityQuotaDock
 
 final class GeminiQuotaTests: XCTestCase {
     private func decode(_ buckets: String) throws -> GeminiQuota {

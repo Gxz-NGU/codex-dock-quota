@@ -8,10 +8,13 @@ let package = Package(
         .macOS(.v13),
     ],
     targets: [
+        .target(name: "QuotaShared", path: "Sources/QuotaShared"),
         .executableTarget(
             name: "CodexQuotaDock",
+            dependencies: ["QuotaShared"],
             path: "Sources/CodexQuotaDock"
         ),
-        .testTarget(name: "NativeQuotaTests", dependencies: ["CodexQuotaDock"], path: "Tests/NativeQuotaTests"),
+        .executableTarget(name: "AntigravityQuotaDock", dependencies: ["QuotaShared"], path: "Sources/AntigravityQuotaDock"),
+        .testTarget(name: "NativeQuotaTests", dependencies: ["CodexQuotaDock", "AntigravityQuotaDock", "QuotaShared"], path: "Tests/NativeQuotaTests"),
     ]
 )

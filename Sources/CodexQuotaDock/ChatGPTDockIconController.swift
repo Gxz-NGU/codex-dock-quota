@@ -56,8 +56,22 @@ final class ChatGPTDockIconController {
         }
     }
 
+    var runtimeLightURL: URL { generatedIconDirectory.appendingPathComponent("icon-codex-light-quota.png") }
+    var runtimeDarkURL: URL { generatedIconDirectory.appendingPathComponent("icon-codex-dark-color-quota.png") }
+    var runtimeOriginalURL: URL { generatedIconDirectory.appendingPathComponent("original.png") }
+    func recordDisplayStatus(error: String?) throws {
+        try prepareGeneratedIconDirectory()
+        let status: [String: Any] = ["updatedAt": ISO8601DateFormatter().string(from: Date()),
+            "displayApplied": error == nil, "error": error as Any? ?? NSNull()]
+        try JSONSerialization.data(withJSONObject: status).write(to: generatedIconDirectory.appendingPathComponent("runtime-status.json"), options: .atomic)
+    }
+    func applicationURL() throws -> URL { try locateChatGPTApplication() }
+    func usesElectron() throws -> Bool {
+        FileManager.default.fileExists(atPath: try applicationURL().appendingPathComponent("Contents/Resources/app.asar").path)
+    }
     func showBadge(_ text: String) throws {
         let applicationURL = try locateChatGPTApplication()
+        let electron = try usesElectron()
         let resourcesURL = applicationURL
             .appendingPathComponent("Contents", isDirectory: true)
             .appendingPathComponent("Resources", isDirectory: true)
@@ -65,6 +79,14 @@ final class ChatGPTDockIconController {
         let sourceDarkIconURL = resourcesURL.appendingPathComponent("icon-codex-dark-color.png")
 
         try prepareGeneratedIconDirectory()
+        if electron && !FileManager.default.fileExists(atPath: runtimeOriginalURL.path) {
+            let icon = NSWorkspace.shared.icon(forFile: applicationURL.path)
+            guard let bytes = icon.tiffRepresentation, let rep = NSBitmapImageRep(data: bytes),
+                  let png = rep.representation(using: .png, properties: [:]) else {
+                throw ChatGPTDockIconError.imageRenderingFailed("无法保存恢复图标")
+            }
+            try png.write(to: runtimeOriginalURL, options: .atomic)
+        }
 
         let generatedLightIconURL = generatedIconDirectory
             .appendingPathComponent("icon-codex-light-quota.png")
@@ -76,16 +98,17 @@ final class ChatGPTDockIconController {
             renderedBadgeText == text,
             FileManager.default.fileExists(atPath: generatedLightIconURL.path),
             FileManager.default.fileExists(atPath: generatedDarkIconURL.path),
-            sharedDefaults.string(forKey: "DockIconPreference") == "codex-system",
-            sharedDefaults.string(forKey: "DockIconResourceName") == resourceName
+            (electron || (sharedDefaults.string(forKey: "DockIconPreference") == "codex-system" &&
+            sharedDefaults.string(forKey: "DockIconResourceName") == resourceName))
         {
-            notifyDockIconPlugin()
+            if !electron { notifyDockIconPlugin() }
             return
         }
 
         try renderIcon(source: sourceLightIconURL, destination: generatedLightIconURL, badgeText: text)
         try renderIcon(source: sourceDarkIconURL, destination: generatedDarkIconURL, badgeText: text)
 
+        if electron { renderedBadgeText = text; return }
         sharedDefaults.set("codex-system", forKey: "DockIconPreference")
         sharedDefaults.set(resourceName, forKey: "DockIconResourceName")
         guard sharedDefaults.synchronize() else {

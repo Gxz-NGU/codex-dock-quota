@@ -1,99 +1,87 @@
 <div align="center">
-  <h1>AI Quota · Codex & Gemini Dock Indicators</h1>
-  <p>One Swift menu-bar app. Remaining quota on ChatGPT and Antigravity IDE's own Dock icons.</p>
+  <h1>Codex Quota & Antigravity Quota</h1>
+  <p>Two independent Swift menu-bar apps. Remaining quota on the original Dock icons, started on demand.</p>
   <p>
-    <img src="docs/chatgpt-dock-quota.png" width="170" alt="ChatGPT Dock icon with Codex remaining quota and progress bar">
+    <img src="docs/chatgpt-dock-quota.png" width="170" alt="Codex remaining quota on ChatGPT's Dock icon">
     &nbsp;&nbsp;
-    <img src="docs/antigravity-gemini-quota.png" width="170" alt="Antigravity IDE icon with Gemini five-hour remaining quota and progress bar">
+    <img src="docs/antigravity-gemini-quota.png" width="170" alt="Gemini five-hour quota on Antigravity IDE's Dock icon">
   </p>
-  <p>Codex on ChatGPT · Gemini on Antigravity IDE</p>
   <p><a href="README.zh-CN.md">简体中文</a></p>
 </div>
 
-The images illustrate the rendered quota icons; their percentages are examples, not live account data.
+Images illustrate the output; percentages are not live data.
 
 > [!IMPORTANT]
-> An unofficial, experimental macOS utility. Codex uses the documented [App Server protocol](https://developers.openai.com/codex/app-server/), but both Dock integrations depend on application internals. Antigravity updates briefly use its local Electron main-process debugger, which can execute code inside the IDE. Future application updates may require compatibility changes.
+> Unofficial, experimental tools. Recent ChatGPT and Antigravity IDE icons are updated through their local Electron main-process debugger, which permits code execution inside the target app. Target application bundles are not modified or re-signed. Internal interfaces can change with app updates.
 
-## Features
+## Independent utilities
 
-| Provider | Original Dock icon | Displayed quota |
-| --- | --- | --- |
-| Codex | ChatGPT | Most constrained active window in the main `codex` bucket |
-| Gemini | Antigravity IDE | Remaining **five-hour shared Gemini pool** (`gemini-5h`) |
+| Utility | Original Dock icon | Display | Resident processes |
+| --- | --- | --- | --- |
+| Codex Quota | ChatGPT | Most constrained active window of the main `codex` pool | Utility + bundled Codex App Server |
+| Antigravity Quota | Antigravity IDE | Gemini shared pool's five-hour remaining quota | Utility only |
 
-- Percentage and proportional white progress bar on each original Dock icon; no extra Dock icon.
-- Gemini weekly remaining quota and five-hour reset time in the shared menu-bar menu.
-- Refresh every 60 seconds, after wake, or manually from the menu.
-- Native Swift quota reading, WebSocket communication and image rendering. No Node runtime or Node background process.
-- One utility process plus ChatGPT's bundled Codex App Server child process. Memory usage varies; fewer processes do not guarantee lower memory use.
-- Gemini icons redraw only when their percentage changes; ChatGPT supports light and dark icons.
-- Normal quit restores both icons. Gemini also has a 150-second restoration watchdog if refreshes stop.
-- Provider failures are reported separately. Missing Gemini quota is not presented as 0% or 100%.
-
-## Requirements
-
-- macOS 13.5 or later; tested locally on Apple Silicon.
-- Installed, signed-in ChatGPT with its bundled Codex executable and `CodexDockTilePlugin`.
-- Installed, signed-in **Antigravity IDE** at `/Applications/Antigravity IDE.app`, running as a single instance.
-- Swift 5.9 or later to build. No Node.js installation is needed.
+- Run either utility or both; quitting one does not stop the other.
+- Separate menu-bar controls, no extra Dock tiles and no Node runtime or Node child processes.
+- Quota reads every 60 seconds, manual refresh and refresh after wake.
+- Gemini's menu also shows weekly quota and the five-hour reset time. The main icon does not indicate whether weekly quota remains available.
+- Percentage and proportional progress bar; redraw images only when the percentage changes.
+- Normal quit restores the respective icon. A 150-second watchdog restores it when updates stop.
+- Memory use varies. Fewer processes do not guarantee lower memory use; quit an unused utility to stop its processes.
 
 ## Build and run
 
+Requires macOS 13.5+ and Swift 5.9+. Built locally on Apple Silicon. Node.js is not required.
+
 ```sh
-./scripts/build_unified_app.sh
-open "dist/AI Quota.app"
+./scripts/build_app.sh
+
+# Start only what you need
+open "dist/Codex Quota.app"
+open "dist/Antigravity Quota.app"
 ```
 
-`./scripts/build_app.sh` is an alias for the same build. The output is ad-hoc signed for local use, not Apple-notarized. No login item is installed automatically.
+Sign in to the target applications first. Antigravity IDE must be running as a single instance at `/Applications/Antigravity IDE.app`; offline quota reads are unsupported. Codex requires ChatGPT's bundled App Server.
 
-Use the menu-bar gauge icon to inspect both providers, refresh, open ChatGPT, or choose **退出并恢复两个图标** (quit and restore both icons). On migration, AI Quota asks the old Codex Quota and Antigravity Quota utilities to quit normally before taking over; it does not quit ChatGPT or Antigravity IDE.
+The utilities are ad-hoc signed, not notarized. They do not install login items or automatically start one another.
 
-The existing **v0.1.0** [release](https://github.com/Gxz-NGU/codex-dock-quota/releases/tag/v0.1.0) is the earlier Codex-only build. Build from current source for the unified version. To create a local DMG, use `./scripts/package_release.sh`; this does not publish a release.
+To migrate from AI Quota, quit the old unified utility first, or start Codex Quota and let it request a normal quit of the old utility. Then start Antigravity Quota as needed. Do not run the old unified utility alongside the new Gemini utility. The legacy `build_unified_app.sh` entry point now builds both independent apps.
 
-## How it works
+`./scripts/package_release.sh` creates a separate DMG and SHA-256 file for each utility; it does not publish a release. The existing v0.1.0 release is the earlier Codex-only implementation. Build from current source for this compatibility update.
 
-**Codex:** starts ChatGPT's bundled `codex app-server`, performs the initialization handshake, reads `account/rateLimits/read`, and selects `rateLimitsByLimitId["codex"]`. It renders `100 - usedPercent` for the most constrained active window and asks ChatGPT's existing Dock plugin to load the generated icons.
+## Recent ChatGPT compatibility
 
-**Gemini:** discovers the local language server directly owned by the Antigravity IDE main process, then calls `RetrieveUserQuotaSummary`. It selects exactly `gemini-5h` and rounds `remainingFraction × 100`; `gemini-weekly` is shown separately in the menu. The main icon therefore does not tell you whether the weekly pool is exhausted.
+The original implementation wrote `DockIconPreference` / `DockIconResourceName` and notified the Dock plugin. Recent ChatGPT also sets its running icon with `app.dock.setIcon()`, so successfully loading an image in the plugin does not prove that it is visible on the running app.
 
-For each Gemini Dock update, the utility verifies the IDE process, briefly opens its Inspector on `127.0.0.1:9229`, invokes `app.dock.setIcon()`, and closes the debugger. An occupied port causes an error; the utility does not take over another debugger. Gemini quota failures trigger restoration of the original icon, with the in-process watchdog as a fallback.
+The new Electron path updates the verified main process directly and handles subsequent app icon changes and light/dark theme updates while the utility is active. Quit or watchdog expiry removes the temporary icon logic and restores the most recent icon set by the application, or the saved initial icon. Older non-Electron versions retain the legacy plugin path.
 
-## Privacy and compatibility
+Each operation briefly opens `127.0.0.1:9229` and closes it afterward. A local file lock serializes the two utilities; an existing external debugger is not taken over. Unsupported versions report an error rather than presenting a successful quota read as a successful icon update.
 
-- Does not modify or re-sign ChatGPT or Antigravity IDE.
-- Does not read browser cookies or Keychain credentials; no separate API keys are required.
-- The local language server's CSRF value is used in memory only for requests to that service.
-- Gemini icons and minimal quota/update metadata are stored in a private temporary directory, removed on normal quit. No analytics are included.
-- ChatGPT's Dock preference keys/plugin notifications and Antigravity's quota/debugger interfaces are not stable public integration contracts.
-- Multiple IDE instances, other Antigravity installation paths, and reading Gemini quota while the IDE is closed are not supported.
+## Data and privacy
+
+- Codex uses the documented [App Server protocol](https://developers.openai.com/codex/app-server/) and `account/rateLimits/read`.
+- Gemini calls the IDE language service's `RetrieveUserQuotaSummary`, selects exactly `gemini-5h`, rounds `remainingFraction × 100`, and displays weekly quota separately.
+- No browser cookies or Keychain credentials are read. The local service's CSRF value is used in memory only.
+- Private temporary directories contain icons and minimal quota/update metadata, removed on normal quit. No analytics.
+- Debugger expressions only manipulate icons; they do not read app windows, conversations or documents.
 
 ## Tests
 
 ```sh
-CLANG_MODULE_CACHE_PATH="$PWD/.build/native-test-cache" \
-SWIFTPM_MODULECACHE_OVERRIDE="$PWD/.build/native-test-cache" \
-swift test --scratch-path .build/native-tests --disable-sandbox
+CLANG_MODULE_CACHE_PATH="$PWD/.build/split-module-cache" \
+SWIFTPM_MODULECACHE_OVERRIDE="$PWD/.build/split-module-cache" \
+swift test --scratch-path .build/split --disable-sandbox
 ```
 
-Tests cover exact Gemini pool selection, 0%, rounding/reset times, and missing, duplicate or malformed quota data. Local checks also exercised real quota reads, refreshes, migration, normal quit/restoration, child-process shutdown and debugger-port closure. Icon files alone are not proof of visible Dock updates; the original Dock update path was also confirmed visually by the user.
-
-## Source layout
+Tests cover exact Gemini pool selection, 0%, invalid responses, app icon overwrites, theme changes, restoration and wrong-process rejection. Script tests do not prove visible Dock output; confirm that on the target application version. On September 13, 2026, the user visually confirmed the restored quota icon on the running ChatGPT app; normal restoration and debugger-port closure were also verified.
 
 ```text
-Sources/CodexQuotaDock/
-  CodexRateLimitClient.swift       Codex App Server client
-  ChatGPTDockIconController.swift  ChatGPT icon rendering and Dock plugin
-  GeminiQuotaClient.swift          Native quota reader and local Inspector client
-  GeminiQuotaIcon.swift            Gemini icon renderer
-  main.swift                      Shared menu, refresh and lifecycle
-Tests/NativeQuotaTests/            Gemini response validation tests
-scripts/build_unified_app.sh       Native app build
-scripts/package_release.sh         Local DMG packaging
+Sources/CodexQuotaDock/        Codex quota, rendering and independent menu
+Sources/AntigravityQuotaDock/  Gemini quota, rendering and independent menu
+Sources/QuotaShared/           Shared Swift source; no shared background service
+Tests/NativeQuotaTests/        Native tests
+scripts/build_app.sh           Build both utilities
+scripts/package_release.sh     Separate packages
 ```
 
-## License
-
-MIT. See [LICENSE](LICENSE).
-
-ChatGPT, Codex and OpenAI are trademarks of OpenAI. Gemini and Antigravity are Google product names. This project is not affiliated with or endorsed by OpenAI or Google.
+MIT. See [LICENSE](LICENSE). Not affiliated with or endorsed by OpenAI or Google.
